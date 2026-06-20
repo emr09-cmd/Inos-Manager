@@ -6,7 +6,6 @@ import os
 import requests
 from dotenv import load_dotenv
 from config import Config
-from groq import Groq
 
 logger = logging.getLogger(__name__)
 
@@ -17,129 +16,86 @@ load_dotenv()
 
 
 class ChatController(commands.Cog):
-    """Chat handler with Gemini (HTTP) + Groq fallback"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.chat_allowed = self.load_chat_state()
 
-        # =========================
-        # GEMINI (RAW HTTP)
-        # =========================
         self.gemini_key = os.getenv("GEMINI_API_KEY")
 
         if self.gemini_key:
-            logger.info("✅ Gemini (HTTP) initialized")
-        else:
-            logger.warning("❌ Gemini key missing")
+            logger.info("✅ Gemini (HTTP) ready")
 
-        # =========================
-        # GROQ (FALLBACK)
-        # =========================
-        try:
-            groq_key = os.getenv("GROQ_API_KEY")
-
-            if not groq_key:
-                raise ValueError("Missing GROQ_API_KEY")
-
-            self.groq_client = Groq(api_key=groq_key)
-            logger.info("✅ Groq initialized")
-
-        except Exception as e:
-            logger.error(f"❌ Groq init failed: {e}")
-            self.groq_client = None
+        self.groq_key = os.getenv("GROQ_API_KEY")
 
     # =========================
-    # LOGGING
+    # STATE
     # =========================
-    def log_ai(self, provider: str, user: str, prompt: str, response: str):
-        logger.info(
-            f"[AI:{provider}] User={user} | Prompt={prompt[:120]} | Response={response[:120]}"
-        )
-
-    # =========================
-    # STATE LOAD
-    # =========================
-    def load_chat_state(self) -> bool:
+    def load_chat_state(self):
         if os.path.exists(TOGGLE_FILE):
             try:
                 with open(TOGGLE_FILE, "r") as f:
                     return json.load(f).get("chat_allowed", True)
-            except Exception as e:
-                logger.error(f"Load state error: {e}")
+            except:
+                pass
         return True
 
-    # =========================
-    # STATE SAVE
-    # =========================
     def save_chat_state(self, state: bool):
-        try:
-            with open(TOGGLE_FILE, "w") as f:
-                json.dump({"chat_allowed": state}, f, indent=4)
-        except Exception as e:
-            logger.error(f"Save state error: {e}")
+        with open(TOGGLE_FILE, "w") as f:
+            json.dump({"chat_allowed": state}, f)
 
     # =========================
-    # GEMINI REQUEST (HTTP)
+    # GEMINI HTTP
     # =========================
-    def gemini_request(self, prompt: str, system_instruction: str):
+    def gemini_request(self, prompt, system):
         if not self.gemini_key:
             return None
 
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/"
-            f"models/gemini-2.5-flash:generateContent?key={self.gemini_key}"
-        )
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.gemini_key}"
 
         payload = {
             "contents": [
-                {
-                    "parts": [
-                        {
-                            "text": f"{system_instruction}\n\nUser: {prompt}"
-                        }
-                    ]
-                }
+                {"parts": [{"text": f"{system}\n\nUser: {prompt}"}]}
             ]
         }
 
         try:
             r = requests.post(url, json=payload, timeout=20)
-
             if r.status_code != 200:
-                logger.warning(f"Gemini HTTP error: {r.text}")
                 return None
 
-            data = r.json()
+            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-
-        except Exception as e:
-            logger.error(f"Gemini request failed: {e}")
+        except:
             return None
 
     # =========================
-    # GROQ FALLBACK
+    # GROQ HTTP (no SDK)
     # =========================
-    def fallback_llama(self, prompt: str, system_instruction: str, user_name: str = "unknown"):
-        if not self.groq_client:
+    def groq_request(self, prompt):
+        if not self.groq_key:
             return None
+
+        url = "https://api.groq.com/openai/v1/chat/completions"
+
+        headers = {
+            "Authorization": f"Bearer {self.groq_key}",
+            "Content-Type": "application/json"
+        }
+
+        data = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}]
+        }
 
         try:
-            response = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.8,
-                max_tokens=300
-            )
+            r = requests.post(url, json=data, headers=headers)
+            if r.status_code != 200:
+                return None
 
-            return response.choices[0].message.content
+            return r.json()["choices"][0]["message"]["content"]
 
-        except Exception as e:
-            logger.error(f"Groq fallback failed: {e}")
+        except:
             return None
 
     # =========================
@@ -148,98 +104,52 @@ class ChatController(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
 
-        if message.author == self.bot.user:
+        if message.author.bot:
             return
 
         if not message.guild or message.guild.id != Config.GUILD_ID:
             return
 
-        if self.chat_allowed:
+        if not self.chat_allowed:
+            return
 
-            if self.bot.user.mentioned_in(message) and not message.mention_everyone:
+        if not self.bot.user.mentioned_in(message):
+            return
 
-                async with message.channel.typing():
+        async with message.channel.typing():
 
-                    user_name = message.author.display_name
+            user = message.author.display_name
+            content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
 
-                    system_instruction = (
-                        "You are a helpful assistant named Inos Manager. "
-                        "You speak like a snarky anime girl. "
-                        f"Always refer to the user as '{user_name}'. "
-                        "You roast people hard."
-                    )
+            if not content:
+                content = "Hello"
 
-                    clean_content = message.content.replace(
-                        f"<@{self.bot.user.id}>", ""
-                    ).strip()
+            system = (
+                f"You are Inos Manager. You roast users. User is {user}"
+            )
 
-                    if not clean_content:
-                        clean_content = "Hello"
+            reply = self.gemini_request(content, system)
 
-                    reply_text = None
+            if not reply:
+                reply = self.groq_request(content)
 
-                    # =========================
-                    # GEMINI FIRST (HTTP)
-                    # =========================
-                    reply_text = self.gemini_request(clean_content, system_instruction)
-
-                    if reply_text:
-                        self.log_ai("Gemini-HTTP", user_name, clean_content, reply_text)
-                    else:
-                        logger.warning("Gemini failed → Groq fallback")
-
-                        reply_text = self.fallback_llama(
-                            clean_content,
-                            system_instruction,
-                            user_name
-                        )
-
-                        if reply_text:
-                            self.log_ai("Groq", user_name, clean_content, reply_text)
-
-                    # =========================
-                    # RESPONSE
-                    # =========================
-                    if reply_text:
-                        await message.reply(reply_text)
-                    else:
-                        await message.reply(
-                            f"<@{USER_ID}> AI is currently unavailable."
-                        )
-
-        await self.bot.process_commands(message)
+            if reply:
+                await message.reply(reply)
+            else:
+                await message.reply(f"<@{USER_ID}> AI unavailable.")
 
     # =========================
-    # TOGGLE COMMANDS
+    # COMMANDS
     # =========================
-    @commands.hybrid_command(name="allowchat", description="Toggle AI chat")
-    async def allowchat(self, ctx: commands.Context, allowed: bool):
-
+    @commands.hybrid_command(name="allowchat")
+    async def allowchat(self, ctx, allowed: bool):
         self.chat_allowed = allowed
         self.save_chat_state(allowed)
+        await ctx.send(f"Chat: {allowed}")
 
-        status_text = "🟢 Enabled" if allowed else "🔴 Disabled"
-
-        await ctx.send(f"Chat auto-responses: {status_text}")
-
-    @commands.command(name="allowchat_prefix")
-    async def allowchat_prefix(self, ctx: commands.Context, allowed: bool):
-
-        self.chat_allowed = allowed
-        self.save_chat_state(allowed)
-
-        status_text = "🟢 Enabled" if allowed else "🔴 Disabled"
-
-        await ctx.send(f"Chat auto-responses: {status_text}")
-
-    # =========================
-    # PING
-    # =========================
-    @commands.hybrid_command(name="ping", description="Check bot latency")
-    async def ping(self, ctx: commands.Context):
-
-        latency = round(self.bot.latency * 1000)
-        await ctx.send(f"🏓 Pong! {latency}ms")
+    @commands.hybrid_command(name="ping")
+    async def ping(self, ctx):
+        await ctx.send(f"Pong {round(self.bot.latency*1000)}ms")
 
 
 async def setup(bot: commands.Bot):
