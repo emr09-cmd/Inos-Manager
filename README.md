@@ -1,10 +1,17 @@
 # Inos-Manager
 
-pip install discord.py python-dotenv google-genai groq PyNaCl davey
+pip install discord.py python-dotenv google-genai groq PyNaCl davey pg8000
 
 
 DISCORD_TOKEN=your_bot_token_here
-\n
+
 GEMINI_API_KEY=...
-\n
+
 GROQ_API_KEY=...
+
+
+DB_HOST=
+DB_USER=
+DB_PASSWORD=
+DB_NAME=
+DB_PORT=
