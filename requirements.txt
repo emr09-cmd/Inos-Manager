@@ -1,0 +1,7 @@
+discord.py
+python-dotenv
+google-genai
+groq
+PyNaCl
+davey
+pg8000
