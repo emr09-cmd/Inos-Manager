@@ -1,6 +1,6 @@
 # Inos-Manager
 
-pip install discord.py python-dotenv google-genai groq PyNaCl davey pg8000
+pip install discord.py python-dotenv google-genai groq PyNaCl davey pg8000 aiohttp
 
 
 DISCORD_TOKEN=your_bot_token_here

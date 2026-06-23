@@ -6,3 +6,4 @@ __pycache__
 .git
 database.db
 *.sqlite
+chat_settings.json

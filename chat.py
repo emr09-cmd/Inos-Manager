@@ -8,6 +8,7 @@ from config import Config
 from google import genai
 from google.genai import types
 from groq import Groq
+import aiohttp  # ✅ ADDED
 
 # Import our pg8000 connection layer
 import database
@@ -48,6 +49,14 @@ class ChatController(commands.Cog):
             logger.error(f"❌ Groq init failed: {e}")
             self.groq_client = None
 
+    # =========================
+    # IMAGE FETCHER (NEW)
+    # =========================
+    async def fetch_image_bytes(self, url: str):
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                return await resp.read()
+
     def load_chat_state(self) -> bool:
         if os.path.exists(TOGGLE_FILE):
             try:
@@ -70,15 +79,11 @@ class ChatController(commands.Cog):
         )
 
     def fetch_recent_context(self, limit: int = 8):
-        """
-        Pull recent records from Supabase and parse them into 
-        Gemini Content types and standard dictionaries for Groq.
-        """
         raw_logs = []
         try:
             conn = database.get_connection()
             cursor = conn.cursor()
-            # Grab latest interactions sorted by oldest first
+
             query = f"""
                 SELECT is_bot_reply, content, author_name 
                 FROM {database.TABLE_NAME} 
@@ -86,9 +91,10 @@ class ChatController(commands.Cog):
             """
             cursor.execute(query, (limit,))
             rows = cursor.fetchall()
+
             cursor.close()
             conn.close()
-            # Reverse them to follow chronologically correct timeline
+
             raw_logs = list(reversed(rows))
         except Exception as e:
             logger.error(f"Error compiling short term memory: {e}")
@@ -97,36 +103,40 @@ class ChatController(commands.Cog):
         groq_contents = []
 
         for is_bot_reply, content, author_name in raw_logs:
-            # Format text tags clean of internal mentions if necessary
             text_line = content if is_bot_reply else f"[{author_name}]: {content}"
             role = "model" if is_bot_reply else "user"
             groq_role = "assistant" if is_bot_reply else "user"
 
-            # 1. Structure for Gemini SDK 2.5
             gemini_contents.append(
                 types.Content(
                     role=role,
                     parts=[types.Part.from_text(text=text_line)]
                 )
             )
-            # 2. Structure fallback layout for Groq API
+
             groq_contents.append({"role": groq_role, "content": text_line})
 
         return gemini_contents, groq_contents
 
-    def fallback_llama(self, history_payload: list, system_instruction: str, user_name: str = "unknown"):
+    def fallback_llama(self, history_payload: list, system_instruction: str, user_name: str = "unknown", has_image: bool = False):
         if not self.groq_client:
             return None
+
         try:
+            if has_image:
+                return "I can’t view images, Because i switch to Groq LLM, Please describe the image in text so I can respond."
+
             messages = [{"role": "system", "content": system_instruction}] + history_payload
+
             response = self.groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=messages,
                 temperature=0.8,
                 max_tokens=300
             )
-            text = response.choices[0].message.content
-            return text
+
+            return response.choices[0].message.content
+
         except Exception as e:
             logger.error(f"Groq fallback failed: {e}")
             return None
@@ -140,6 +150,7 @@ class ChatController(commands.Cog):
         try:
             async for msg in channel.history(limit=100, after=after_target, oldest_first=True):
                 guild_id = msg.guild.id if msg.guild else None
+
                 database.save_message(
                     message_id=msg.id,
                     guild_id=guild_id,
@@ -149,12 +160,16 @@ class ChatController(commands.Cog):
                     timestamp=msg.created_at,
                     is_bot_reply=1 if msg.author == self.bot.user else 0
                 )
+
                 latest_processed_id = msg.id
                 count += 1
+
             if latest_processed_id:
                 database.update_last_synced_id(latest_processed_id)
+
             if count > 0:
                 logger.info(f"🔄 Database Catchup: Synced {count} messages.")
+
         except Exception as e:
             logger.error(f"Failed catchup loop: {e}")
 
@@ -173,9 +188,8 @@ class ChatController(commands.Cog):
             await self.bot.process_commands(message)
             return
 
-        # 1. Catch up on missed messages and save the new message
         await self.sync_channel_history(message.channel)
-        
+
         database.save_message(
             message_id=message.id,
             guild_id=message.guild.id,
@@ -185,37 +199,69 @@ class ChatController(commands.Cog):
             timestamp=message.created_at,
             is_bot_reply=0
         )
+
         database.update_last_synced_id(message.id)
 
         if self.chat_allowed and self.ai_client:
+
             if self.bot.user.mentioned_in(message) and not message.mention_everyone:
                 async with message.channel.typing():
+
                     user_name = message.author.display_name
-                    
+
                     system_instruction = (
                         "You are a helpful assistant named Inos Manager. "
                         "You speak like a snarky anime girl. "
                         f"Always refer to the user as '{user_name}'. "
                         "You roast people hard. Use context historical logs to remember past items discussed."
+                        "You Always Call Diamond Master for Master Pappa because he is hosting your server."
+                        "You Creator is emr09 or also Knows as Creator of Inos Manager."
                     )
 
                     clean_content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
                     if not clean_content:
                         clean_content = "Hello"
 
-                    # Fetch history logs directly from Supabase
                     gemini_history, groq_history = self.fetch_recent_context(limit=8)
 
-                    # Append the incoming message to the parsed history payloads
+                    has_image = len(message.attachments) > 0  # ✅ NEW FLAG
+
+                    # =========================
+                    # BUILD GEMINI VISION INPUT
+                    # =========================
+                    parts = [
+                        types.Part.from_text(text=f"[{user_name}]: {clean_content}")
+                    ]
+
+                    if has_image:
+                        for attachment in message.attachments:
+                            try:
+                                img_bytes = await self.fetch_image_bytes(attachment.url)
+
+                                parts.append(
+                                    types.Part.from_bytes(
+                                        data=img_bytes,
+                                        mime_type=attachment.content_type or "image/jpeg"
+                                    )
+                                )
+                            except Exception as e:
+                                logger.error(f"Image fetch failed: {e}")
+
                     gemini_history.append(
-                        types.Content(role="user", parts=[types.Part.from_text(text=f"[{user_name}]: {clean_content}")])
+                        types.Content(
+                            role="user",
+                            parts=parts
+                        )
                     )
-                    groq_history.append({"role": "user", "content": f"[{user_name}]: {clean_content}"})
+
+                    groq_history.append({
+                        "role": "user",
+                        "content": f"[{user_name}]: {clean_content}"
+                    })
 
                     reply_text = None
 
                     try:
-                        # Pass the full historical collection array instead of just a raw string
                         response = self.ai_client.models.generate_content(
                             model="gemini-2.5-flash",
                             contents=gemini_history,
@@ -225,20 +271,31 @@ class ChatController(commands.Cog):
                                 temperature=0.8,
                             )
                         )
+
                         reply_text = response.text
+
                         if reply_text:
                             self.log_ai("Gemini", user_name, clean_content, reply_text)
                         else:
-                            logger.warning("Gemini empty → shifting to Groq")
-                            reply_text = self.fallback_llama(groq_history, system_instruction, user_name)
+                            reply_text = self.fallback_llama(
+                                groq_history,
+                                system_instruction,
+                                user_name,
+                                has_image
+                            )
 
                     except Exception as e:
                         logger.warning(f"Gemini error → switching to Groq fallback: {e}")
-                        reply_text = self.fallback_llama(groq_history, system_instruction, user_name)
+                        reply_text = self.fallback_llama(
+                            groq_history,
+                            system_instruction,
+                            user_name,
+                            has_image
+                        )
 
-                    # Send reply and save it to the database
                     if reply_text:
                         bot_msg = await message.reply(reply_text)
+
                         database.save_message(
                             message_id=bot_msg.id,
                             guild_id=bot_msg.guild.id,
@@ -248,6 +305,7 @@ class ChatController(commands.Cog):
                             timestamp=bot_msg.created_at,
                             is_bot_reply=1
                         )
+
                         database.update_last_synced_id(bot_msg.id)
                     else:
                         await message.reply(f"<@{USER_ID}> AI is currently unavailable.")
@@ -258,6 +316,7 @@ class ChatController(commands.Cog):
     async def allowchat(self, ctx: commands.Context, allowed: bool):
         self.chat_allowed = allowed
         self.save_chat_state(allowed)
+
         status_text = "🟢 Enabled" if allowed else "🔴 Disabled"
         await ctx.send(f"Chat auto-responses have been {status_text}.")
 

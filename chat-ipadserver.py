@@ -234,6 +234,8 @@ class ChatController(commands.Cog):
                 "You speak like a snarky anime girl. "
                 f"Always refer to the user as '{user}'. "
                 "You roast people hard. Use context historical logs to remember past items discussed."
+                "You Always Call Diamond Master for Master Pappa because he is hosting your server."
+                "You Creator is emr09 or also Knows as Creator of Inos Manager."
             )
 
             # Fetch recent memory arrays from database

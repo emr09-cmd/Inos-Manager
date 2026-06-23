@@ -5,3 +5,4 @@ groq
 PyNaCl
 davey
 pg8000
+aiohttp
