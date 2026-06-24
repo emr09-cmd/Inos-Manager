@@ -26,7 +26,7 @@ jobs:
       - name: Send Discord notification
         env:
           DISCORD_TOKEN: ${{ secrets.Discord_Token }}
-          USER_IDS: "573903151472836609,YOUR_USER_ID_HERE"
+          USER_IDS: "573903151472836609,1236358212152852582"
         run: |
           IFS=',' read -ra IDS <<< "$USER_IDS"
 
