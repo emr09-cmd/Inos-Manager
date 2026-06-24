@@ -22,3 +22,22 @@ jobs:
 
       - name: Push image
         run: docker push emr09/inos-bot:latest
+
+      - name: Send Discord notification
+        env:
+          DISCORD_TOKEN: ${{ secrets.Discord_Token }}
+          USER_ID: "573903151472836609"
+        run: |
+          # Create (or fetch) DM channel
+          CHANNEL_ID=$(curl -s -X POST "https://discord.com/api/v10/users/@me/channels" \
+            -H "Authorization: Bot $DISCORD_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"recipient_id\":\"$USER_ID\"}" | jq -r '.id')
+
+          # Send message
+          curl -s -X POST "https://discord.com/api/v10/channels/$CHANNEL_ID/messages" \
+            -H "Authorization: Bot $DISCORD_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "content": "Docker Image uploaded Successfully\nInos-Manager Code has a New Update"
+            }'
