@@ -19,9 +19,7 @@ class SerikaImage(commands.Cog):
     async def fetch_image(self, rating: str = "safe"):
         """Fetch image with dynamic rating (safe or questionable)"""
         url = f"{SERIKA_BASE_URL}/images"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}"
-        }
+        headers = {"Authorization": f"Bearer {self.api_key}"}
         params = {
             "limit": 1,
             "page": 1,
@@ -31,11 +29,9 @@ class SerikaImage(commands.Cog):
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, params=params) as resp:
-                # Rate limit handling
                 if resp.status == 429:
                     return {"error": "RATE_LIMITED"}
 
-                # Parse JSON safely
                 try:
                     data = await resp.json()
                 except Exception:
@@ -50,7 +46,6 @@ class SerikaImage(commands.Cog):
 
                 image = images[0]
 
-                # Safety check (still block non-requested ratings)
                 if image.get("rating") != rating:
                     return {"error": f"NON_{rating.upper()}_BLOCKED"}
 
@@ -71,7 +66,6 @@ class SerikaImage(commands.Cog):
         # === CHANNEL-BASED RATING LOGIC ===
         target_channel_id = 1516854766016397413
         is_nsfw_channel = interaction.channel_id == target_channel_id
-
         rating = "questionable" if is_nsfw_channel else "safe"
         # =================================
 
@@ -88,7 +82,7 @@ class SerikaImage(commands.Cog):
         stats = result.get("stats", {})
 
         embed = discord.Embed(
-            title=f"🎴 Serika {'questionable' if is_nsfw_channel else 'Safe'} Image",
+            title=f"🎴 Serika {'❗ Questionable' if is_nsfw_channel else '✅ Safe'} Image",
             color=discord.Color.red() if is_nsfw_channel else discord.Color.green()
         )
 
@@ -110,7 +104,11 @@ class SerikaImage(commands.Cog):
             )
         )
 
-        await interaction.followup.send(embed=embed)
+        # === SPOILER FOR NSFW ===
+        content = "|| ⚠️ Questionable / NSFW Image ||" if is_nsfw_channel else None
+        # ========================
+
+        await interaction.followup.send(content=content, embed=embed)
 
 
 async def setup(bot: commands.Bot):
