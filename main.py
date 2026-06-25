@@ -37,7 +37,7 @@ async def load_cogs():
     cogs = [
         "gamble_rep",           # Gamble game
         "delete_all_message_channel",  # Purge command
-        "chat"                  # Chat AI controller
+        "chat",                  # Chat AI controller
         "Serika_Image"
     ]
     
