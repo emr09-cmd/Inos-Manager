@@ -4,6 +4,7 @@ from discord.ext import commands
 import aiohttp
 import os
 import logging
+import io
 
 logger = logging.getLogger(__name__)
 SERIKA_BASE_URL = "https://serika.art/api/v1"
