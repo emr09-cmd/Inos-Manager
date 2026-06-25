@@ -1,8 +1,11 @@
 import discord
 from discord.ext import commands
+import json
+import time
+import os
 
-# Only this user can stop the bot
 AUTHORIZED_USER_ID = 1236358212152852582
+STOP_FILE = "stop_state.json"
 
 class Stop(commands.Cog):
     def __init__(self, bot):
@@ -10,24 +13,28 @@ class Stop(commands.Cog):
 
     @discord.app_commands.command(
         name="stop",
-        description="Stops the bot"
+        description="Stops the bot for 1 minute"
     )
     async def stop(self, interaction: discord.Interaction):
-        # Check user ID
         if interaction.user.id != AUTHORIZED_USER_ID:
             await interaction.response.send_message(
-                "❌ You are not authorized to use this command.",
+                "❌ Not authorized.",
                 ephemeral=True
             )
             return
 
-        # Hidden message visible only to command user
+        data = {
+            "restart_after": time.time() + 60
+        }
+
+        with open(STOP_FILE, "w") as f:
+            json.dump(data, f)
+
         await interaction.response.send_message(
-            "🛑 Stopping...",
+            "🛑 Stopping bot for 1 minute...",
             ephemeral=True
         )
 
-        # Gracefully close bot
         await self.bot.close()
 
 async def setup(bot):

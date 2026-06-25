@@ -3,6 +3,9 @@ from discord.ext import commands
 import asyncio
 import logging
 import os
+import json
+import time
+import asyncio
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -70,18 +73,41 @@ async def on_command_error(ctx, error):
 # MAIN ENTRYPOINT
 # =========================
 async def main():
+    STOP_FILE = "stop_state.json"
+
+    if os.path.exists(STOP_FILE):
+        try:
+            with open(STOP_FILE, "r") as f:
+                data = json.load(f)
+
+            restart_after = data.get("restart_after", 0)
+            remaining = restart_after - time.time()
+
+            if remaining > 0:
+                logger.warning(
+                    f"Bot is paused. Waiting {int(remaining)} seconds before login..."
+                )
+                await asyncio.sleep(remaining)
+
+            # Remove file after pause is complete
+            os.remove(STOP_FILE)
+
+        except Exception as e:
+            logger.error(f"Failed reading stop file: {e}")
+
     async with bot:
         await load_cogs()
+
         token = os.getenv("DISCORD_TOKEN")
-        
+
         if not token:
-            logger.critical("❌ DISCORD_TOKEN not found in .env file!")
+            logger.critical("❌ DISCORD_TOKEN not found!")
             return
-            
+
         try:
             await bot.start(token)
         except discord.LoginFailure:
-            logger.critical("❌ Invalid token. Check your .env file.")
+            logger.critical("❌ Invalid token.")
         except Exception as e:
             logger.critical(f"❌ Failed to start bot: {e}")
 
