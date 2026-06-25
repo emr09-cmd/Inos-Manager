@@ -6,7 +6,6 @@ import os
 import logging
 
 logger = logging.getLogger(__name__)
-
 SERIKA_BASE_URL = "https://serika.art/api/v1"
 
 
@@ -14,27 +13,24 @@ class SerikaImage(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.api_key = os.getenv("SERIKA_BOORU_API")
-
         if not self.api_key:
             logger.warning("⚠️ SERIKA_BOORU_API not found in environment variables")
 
-    async def fetch_safe_image(self):
+    async def fetch_image(self, rating: str = "safe"):
+        """Fetch image with dynamic rating (safe or explicit)"""
         url = f"{SERIKA_BASE_URL}/images"
-
         headers = {
             "Authorization": f"Bearer {self.api_key}"
         }
-
         params = {
             "limit": 1,
             "page": 1,
             "sort": "random",
-            "ratings": "safe"   # 🔒 SAFE ONLY
+            "ratings": rating
         }
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, params=params) as resp:
-
                 # Rate limit handling
                 if resp.status == 429:
                     return {"error": "RATE_LIMITED"}
@@ -54,15 +50,15 @@ class SerikaImage(commands.Cog):
 
                 image = images[0]
 
-                # Extra safety check (belt + suspenders)
-                if image.get("rating") != "safe":
-                    return {"error": "NON_SAFE_BLOCKED"}
+                # Safety check (still block non-requested ratings)
+                if image.get("rating") != rating:
+                    return {"error": f"NON_{rating.upper()}_BLOCKED"}
 
                 return image
 
     @app_commands.command(
         name="serika-image",
-        description="Fetch a random SAFE image from Serika"
+        description="Fetch a random image from Serika (Safe by default, Explicit in NSFW channel)"
     )
     async def serika_image(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -72,31 +68,36 @@ class SerikaImage(commands.Cog):
                 "❌ Missing API key. Set `SERIKA_BOORU_API` in your .env file."
             )
 
-        result = await self.fetch_safe_image()
+        # === CHANNEL-BASED RATING LOGIC ===
+        target_channel_id = 1516854766016397413
+        is_nsfw_channel = interaction.channel_id == target_channel_id
+
+        rating = "explicit" if is_nsfw_channel else "safe"
+        # =================================
+
+        result = await self.fetch_image(rating)
 
         if isinstance(result, dict) and "error" in result:
             return await interaction.followup.send(f"❌ Error: {result['error']}")
 
         image_url = result.get("url")
         thumb_url = result.get("thumbnail_url")
-
         tags = ", ".join([t["name"] for t in result.get("tags", [])])
-        rating = result.get("rating", "unknown")
+        rating_str = result.get("rating", "unknown")
         uploader = result.get("user", {}).get("username", "unknown")
         stats = result.get("stats", {})
 
         embed = discord.Embed(
-            title="🎴 Serika Safe Image",
-            color=discord.Color.green()
+            title=f"🎴 Serika {'Explicit' if is_nsfw_channel else 'Safe'} Image",
+            color=discord.Color.red() if is_nsfw_channel else discord.Color.green()
         )
 
         if image_url:
             embed.set_image(url=image_url)
-
         if thumb_url:
             embed.set_thumbnail(url=thumb_url)
 
-        embed.add_field(name="Rating", value=rating, inline=True)
+        embed.add_field(name="Rating", value=rating_str.upper(), inline=True)
         embed.add_field(name="Uploader", value=uploader, inline=True)
         embed.add_field(name="Tags", value=tags if tags else "None", inline=False)
 
