@@ -17,7 +17,7 @@ class SerikaImage(commands.Cog):
             logger.warning("⚠️ SERIKA_BOORU_API not found in environment variables")
 
     async def fetch_image(self, rating: str = "safe"):
-        """Fetch image with dynamic rating (safe or explicit)"""
+        """Fetch image with dynamic rating (safe or questionable)"""
         url = f"{SERIKA_BASE_URL}/images"
         headers = {
             "Authorization": f"Bearer {self.api_key}"
@@ -58,7 +58,7 @@ class SerikaImage(commands.Cog):
 
     @app_commands.command(
         name="serika-image",
-        description="Fetch a random image from Serika (Safe by default, Explicit in NSFW channel)"
+        description="Fetch a random image from Serika (Safe by default, questionable in NSFW channel)"
     )
     async def serika_image(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -72,7 +72,7 @@ class SerikaImage(commands.Cog):
         target_channel_id = 1516854766016397413
         is_nsfw_channel = interaction.channel_id == target_channel_id
 
-        rating = "explicit" if is_nsfw_channel else "safe"
+        rating = "questionable" if is_nsfw_channel else "safe"
         # =================================
 
         result = await self.fetch_image(rating)
@@ -88,7 +88,7 @@ class SerikaImage(commands.Cog):
         stats = result.get("stats", {})
 
         embed = discord.Embed(
-            title=f"🎴 Serika {'Explicit' if is_nsfw_channel else 'Safe'} Image",
+            title=f"🎴 Serika {'questionable' if is_nsfw_channel else 'Safe'} Image",
             color=discord.Color.red() if is_nsfw_channel else discord.Color.green()
         )
 
