@@ -76,7 +76,7 @@ class SerikaImage(commands.Cog):
 
         image_url = result.get("url")
         thumb_url = result.get("thumbnail_url")
-        tags = ", ".join([t["name"] for t in result.get("tags", [])])
+        tags = ", ".join([t["name"] for t in result.get("tags", [])]) or "None"
         rating_str = result.get("rating", "unknown")
         uploader = result.get("user", {}).get("username", "unknown")
         stats = result.get("stats", {})
@@ -86,14 +86,12 @@ class SerikaImage(commands.Cog):
             color=discord.Color.red() if is_nsfw_channel else discord.Color.green()
         )
 
-        if image_url:
-            embed.set_image(url=image_url)
         if thumb_url:
             embed.set_thumbnail(url=thumb_url)
 
         embed.add_field(name="Rating", value=rating_str.upper(), inline=True)
         embed.add_field(name="Uploader", value=uploader, inline=True)
-        embed.add_field(name="Tags", value=tags if tags else "None", inline=False)
+        embed.add_field(name="Tags", value=tags, inline=False)
 
         embed.set_footer(
             text=(
@@ -104,11 +102,26 @@ class SerikaImage(commands.Cog):
             )
         )
 
-        # === SPOILER FOR NSFW ===
-        content = "|| ⚠️ Questionable / NSFW Image ||" if is_nsfw_channel else None
-        # ========================
+        # === SPOILER THE IMAGE ITSELF ===
+        if is_nsfw_channel and image_url:
+            # Download image and send as spoiler attachment
+            async with aiohttp.ClientSession() as session:
+                async with session.get(image_url) as img_resp:
+                    if img_resp.status == 200:
+                        image_bytes = await img_resp.read()
+                        # Discord recognizes files starting with SPOILER_ as spoiled
+                        file = discord.File(
+                            fp=io.BytesIO(image_bytes),  # need to import io
+                            filename="SPOILER_serika_image.png",
+                            spoiler=True
+                        )
+                        await interaction.followup.send(content="||⚠️ Questionable Image||", file=file, embed=embed)
+                        return
 
-        await interaction.followup.send(content=content, embed=embed)
+        # Safe images or fallback
+        if image_url:
+            embed.set_image(url=image_url)
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):
