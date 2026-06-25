@@ -54,7 +54,7 @@ class SerikaImage(commands.Cog):
 
     @app_commands.command(
         name="serika-image",
-        description="Fetch a random image from Serika (Safe by default, questionable in NSFW channel)"
+        description="Fetch a random image from Serika Booru (Safe by default, questionable in NSFW channel)"
     )
     async def serika_image(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -83,7 +83,7 @@ class SerikaImage(commands.Cog):
         stats = result.get("stats", {})
 
         embed = discord.Embed(
-            title=f"🎴 Serika {'❗ Questionable' if is_nsfw_channel else '✅ Safe'} Image",
+            title=f"🎴 Serika Booru {'❗ Questionable' if is_nsfw_channel else '✅ Safe'} Image",
             color=discord.Color.red() if is_nsfw_channel else discord.Color.green()
         )
 
