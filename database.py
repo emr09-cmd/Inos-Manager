@@ -153,10 +153,10 @@ def update_user_profile(user_id: int, data: dict):
         if not update_data:
             return
 
-        # Safe column list
         columns = list(update_data.keys())
-        set_parts = [f"{col} = %s" for col in columns]
         values = list(update_data.values())
+
+        set_parts = [f"{col} = EXCLUDED.{col}" for col in columns]  # ← use EXCLUDED, no extra params
 
         query = f"""
             INSERT INTO user_profiles (user_id, {', '.join(columns)})
@@ -165,7 +165,7 @@ def update_user_profile(user_id: int, data: dict):
             {', '.join(set_parts)}
         """
 
-        cursor.execute(query, [user_id] + values)
+        cursor.execute(query, [user_id] + values)  # ← only N+1 params, not 2N+1
         conn.commit()
         cursor.close()
         conn.close()
