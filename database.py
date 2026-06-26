@@ -2,11 +2,10 @@ import os
 import pg8000.dbapi
 from datetime import datetime
 import logging
+import json
 from dotenv import load_dotenv
 
-# CRITICAL: Load variables right away before any code runs
 load_dotenv()
-
 logger = logging.getLogger(__name__)
 
 TARGET_CHANNEL_ID = 1505597064942325840
@@ -14,16 +13,13 @@ TABLE_NAME = f"channel_{TARGET_CHANNEL_ID}"
 
 def get_connection():
     """Establishes a pure-python connection to Supabase's connection pooler."""
-    # Using fallback strings just in case .env parsing has a delay
     db_host = os.getenv("DB_HOST")
     db_user = os.getenv("DB_USER")
     db_pass = os.getenv("DB_PASSWORD")
     db_name = os.getenv("DB_NAME", "postgres")
     db_port = int(os.getenv("DB_PORT", 5432))
-
     if not db_user or not db_host or not db_pass:
         raise ValueError(f"❌ Missing Database Credentials in .env! Host: {db_host}, User: {db_user}")
-
     return pg8000.dbapi.connect(
         host=db_host,
         user=db_user,
@@ -37,7 +33,7 @@ def init_db():
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        
+
         # Create dedicated table for this specific channel
         cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
@@ -50,7 +46,30 @@ def init_db():
                 is_bot_reply INT DEFAULT 0
             )
         ''')
-        
+
+        # User Profiles Table (Feature 11)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                user_id BIGINT PRIMARY KEY,
+                username TEXT,
+                nickname TEXT,
+                personality JSONB DEFAULT '{}',
+                favorites JSONB DEFAULT '{}',
+                dislikes TEXT[] DEFAULT '{}',
+                projects TEXT[] DEFAULT '{}',
+                known_friends TEXT[] DEFAULT '{}',
+                running_topics TEXT[] DEFAULT '{}',
+                birthday TEXT,
+                timezone TEXT,
+                relationship_score INT DEFAULT 50,
+                conversation_count INT DEFAULT 0,
+                last_seen TIMESTAMP WITH TIME ZONE,
+                memory_history JSONB DEFAULT '[]',
+                temp_memories JSONB DEFAULT '{}',
+                stats JSONB DEFAULT '{}'
+            )
+        ''')
+
         # Tracking table for syncing positions
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS channel_sync (
@@ -58,6 +77,7 @@ def init_db():
                 last_message_id BIGINT
             )
         ''')
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -113,5 +133,60 @@ def update_last_synced_id(message_id: int):
     except Exception as e:
         logger.error(f"❌ Error updating sync position: {e}")
 
-# Initialize tables when imported by your Cog
+# ==================== NEW: USER PROFILE FUNCTIONS ====================
+
+def get_user_profile(user_id: int) -> dict:
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if row:
+            cols = [desc[0] for desc in cursor.description]
+            profile = dict(zip(cols, row))
+            for key in ['personality', 'favorites', 'memory_history', 'temp_memories', 'stats']:
+                if profile.get(key) and isinstance(profile[key], str):
+                    try:
+                        profile[key] = json.loads(profile[key])
+                    except:
+                        profile[key] = {}
+            return profile
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get profile {user_id}: {e}")
+        return None
+
+def update_user_profile(user_id: int, data: dict):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        set_parts = []
+        values = []
+        for key, value in data.items():
+            if key in ['personality', 'favorites', 'memory_history', 'temp_memories', 'stats']:
+                value = json.dumps(value)
+            set_parts.append(f"{key} = %s")
+            values.append(value)
+
+        values.append(user_id)
+
+        query = f"""
+            INSERT INTO user_profiles (user_id, {', '.join(data.keys())})
+            VALUES (%s, {', '.join(['%s'] * len(data))})
+            ON CONFLICT (user_id) DO UPDATE SET
+            {', '.join(set_parts)}
+        """
+
+        cursor.execute(query, [user_id] + values)
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to update profile {user_id}: {e}")
+
+# Initialize tables when imported
 init_db()
