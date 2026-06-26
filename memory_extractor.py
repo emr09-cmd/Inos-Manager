@@ -12,8 +12,8 @@ def json_serializer(obj):
 
 async def extract_memory(client, conversation_text: str, existing_profile: dict = None) -> dict:
     system_prompt = """
-You are an expert memory extractor. 
-Only return keys that match: nickname, personality, favorites, dislikes, projects, running_topics, known_friends, birthday, timezone.
+You are an expert memory extractor.
+Only return these keys if relevant: nickname, personality, favorites, dislikes, projects, running_topics, known_friends, birthday, timezone.
 Return valid JSON only.
 """
 

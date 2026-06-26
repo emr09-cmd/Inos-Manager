@@ -169,16 +169,16 @@ class ChatController(commands.Cog):
 Message: {message.content}
 User: {message.author.display_name}
 Personality: {json.dumps(profile.get('personality', {}))}
-Relationship: {profile.get('relationship_score', 50)}
+Relationship Score: {profile.get('relationship_score', 50)}
 
-Decide if I should react. Return only JSON:
+Should I react? Return only valid JSON:
 {{"react": true, "emoji": ["😂", "❤️"]}} or {{"react": false}}
 """
             response = self.ai_client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
                 config=types.GenerateContentConfig(
-                    system_instruction="You are a natural Discord user. React only when appropriate.",
+                    system_instruction="You are a natural Discord user. Be selective.",
                     temperature=0.7,
                     max_output_tokens=120
                 )
@@ -214,7 +214,7 @@ Decide if I should react. Return only JSON:
 
         profile = await self.get_or_create_profile(message.author.id, message.author.display_name)
 
-        # AI Reaction System
+        # AI-Powered Reactions
         if message.channel.id == ALLOWED_CHANNEL_ID:
             reaction_decision = await self.ai_decide_reaction(message, profile)
             if reaction_decision.get("react"):
@@ -291,7 +291,7 @@ f"Always refer to the user as '{user_name}'. "
                         )
                         database.update_last_synced_id(bot_msg.id)
 
-                        # Memory + Personality
+                        # Memory & Personality Update
                         full_context = f"User: {clean_content}\nBot: {reply_text}"
                         new_memories = await extract_memory(self.ai_client, full_context, profile)
 

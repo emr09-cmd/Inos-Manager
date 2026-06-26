@@ -153,20 +153,19 @@ def update_user_profile(user_id: int, data: dict):
         if not update_data:
             return
 
-        # Build safe query
-        columns = ['user_id'] + list(update_data.keys())
-        placeholders = ['%s'] * len(columns)
-        set_clause = ', '.join([f"{k} = %s" for k in update_data.keys()])
+        # Safe column list
+        columns = list(update_data.keys())
+        set_parts = [f"{col} = %s" for col in columns]
+        values = list(update_data.values())
 
         query = f"""
-            INSERT INTO user_profiles ({', '.join(columns)})
-            VALUES ({', '.join(placeholders)})
+            INSERT INTO user_profiles (user_id, {', '.join(columns)})
+            VALUES (%s, {', '.join(['%s'] * len(columns))})
             ON CONFLICT (user_id) DO UPDATE SET
-            {set_clause}
+            {', '.join(set_parts)}
         """
 
-        values = [user_id] + list(update_data.values())
-        cursor.execute(query, values)
+        cursor.execute(query, [user_id] + values)
         conn.commit()
         cursor.close()
         conn.close()
