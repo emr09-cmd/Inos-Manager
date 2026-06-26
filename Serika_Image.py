@@ -156,12 +156,22 @@ class SerikaImage(commands.Cog):
                 async with session.get(image_url) as img_resp:
                     if img_resp.status == 200:
                         image_bytes = await img_resp.read()
-                        file = discord.File(
-                            fp=io.BytesIO(image_bytes),
-                            filename="SPOILER_serika_image.png",
-                            spoiler=True
-                        )
-                        await interaction.followup.send(content="||⚠️ Questionable Image||", file=file, embed=embed)
+                        try:
+                            file = discord.File(
+                                fp=io.BytesIO(image_bytes),
+                                filename="SPOILER_serika_image.png",
+                                spoiler=True
+                            )
+                            await interaction.followup.send(content="||⚠️ Questionable Image||", file=file, embed=embed)
+                        except discord.HTTPException as e:
+                            if e.code == 40005:  # Payload Too Large
+                                logger.warning("Image too large for upload, falling back to spoiler URL")
+                                await interaction.followup.send(
+                                    content=f"||⚠️ Questionable Image (too large to upload) — {image_url}||",
+                                    embed=embed
+                                )
+                            else:
+                                raise
                         return
 
         # Safe images or fallback
