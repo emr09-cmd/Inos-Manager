@@ -13,12 +13,13 @@ TABLE_NAME = f"channel_{TARGET_CHANNEL_ID}"
 
 def get_connection():
     """Establishes a pure-python connection to Supabase's connection pooler."""
+    # Using fallback strings just in case .env parsing has a delay
     db_host = os.getenv("DB_HOST")
     db_user = os.getenv("DB_USER")
     db_pass = os.getenv("DB_PASSWORD")
     db_name = os.getenv("DB_NAME", "postgres")
     db_port = int(os.getenv("DB_PORT", 5432))
-    if not db_user or not db_host or not db_pass:
+if not db_user or not db_host or not db_pass:
         raise ValueError(f"❌ Missing Database Credentials in .env! Host: {db_host}, User: {db_user}")
     return pg8000.dbapi.connect(
         host=db_host,
@@ -33,8 +34,7 @@ def init_db():
     try:
         conn = get_connection()
         cursor = conn.cursor()
-
-        # Create dedicated table for this specific channel
+# Create dedicated table for this specific channel
         cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
                 message_id BIGINT PRIMARY KEY,
@@ -46,8 +46,15 @@ def init_db():
                 is_bot_reply INT DEFAULT 0
             )
         ''')
+# Tracking table for syncing positions
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS channel_sync (
+                channel_id BIGINT PRIMARY KEY,
+                last_message_id BIGINT
+            )
+        ''')
 
-        # User Profiles Table (Feature 11)
+        # NEW: User Profiles Table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS user_profiles (
                 user_id BIGINT PRIMARY KEY,
@@ -67,14 +74,6 @@ def init_db():
                 memory_history JSONB DEFAULT '[]',
                 temp_memories JSONB DEFAULT '{}',
                 stats JSONB DEFAULT '{}'
-            )
-        ''')
-
-        # Tracking table for syncing positions
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS channel_sync (
-                channel_id BIGINT PRIMARY KEY,
-                last_message_id BIGINT
             )
         ''')
 
@@ -133,9 +132,10 @@ def update_last_synced_id(message_id: int):
     except Exception as e:
         logger.error(f"❌ Error updating sync position: {e}")
 
-# ==================== NEW: USER PROFILE FUNCTIONS ====================
+# ==================== USER PROFILE FUNCTIONS ====================
 
 def get_user_profile(user_id: int) -> dict:
+    """Gets user profile"""
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -164,9 +164,14 @@ def update_user_profile(user_id: int, data: dict):
         conn = get_connection()
         cursor = conn.cursor()
 
+        # Fixed duplicate column error
+        update_data = {k: v for k, v in data.items() if k != "user_id"}
+        if not update_data:
+            return
+
         set_parts = []
         values = []
-        for key, value in data.items():
+        for key, value in update_data.items():
             if key in ['personality', 'favorites', 'memory_history', 'temp_memories', 'stats']:
                 value = json.dumps(value)
             set_parts.append(f"{key} = %s")
@@ -175,8 +180,8 @@ def update_user_profile(user_id: int, data: dict):
         values.append(user_id)
 
         query = f"""
-            INSERT INTO user_profiles (user_id, {', '.join(data.keys())})
-            VALUES (%s, {', '.join(['%s'] * len(data))})
+            INSERT INTO user_profiles (user_id, {', '.join(update_data.keys())})
+            VALUES (%s, {', '.join(['%s'] * len(update_data))})
             ON CONFLICT (user_id) DO UPDATE SET
             {', '.join(set_parts)}
         """
@@ -188,5 +193,5 @@ def update_user_profile(user_id: int, data: dict):
     except Exception as e:
         logger.error(f"Failed to update profile {user_id}: {e}")
 
-# Initialize tables when imported
+# Initialize tables when imported by your Cog
 init_db()

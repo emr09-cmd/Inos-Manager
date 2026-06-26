@@ -1,8 +1,14 @@
 import json
 from google.genai import types
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+def json_serializer(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
 
 async def extract_memory(client, conversation_text: str, existing_profile: dict = None) -> dict:
     system_prompt = """
@@ -12,14 +18,19 @@ Ignore jokes. Ignore sarcasm. Ignore assumptions.
 Return valid JSON.
 """
 
+    # Safe profile for JSON
+    safe_profile = existing_profile.copy() if existing_profile else {}
+    if isinstance(safe_profile.get("last_seen"), datetime):
+        safe_profile["last_seen"] = safe_profile["last_seen"].isoformat()
+
     prompt = f"""
 Conversation:
 {conversation_text}
 
 Existing profile:
-{json.dumps(existing_profile or {}, indent=2) if existing_profile else "None"}
+{json.dumps(safe_profile, indent=2, default=json_serializer) if safe_profile else "None"}
 
-Extract important information:
+Extract important long-term information as JSON:
 """
 
     try:

@@ -12,7 +12,7 @@ from config import Config
 from google import genai
 from google.genai import types
 from groq import Groq
-import aiohttp
+import aiohttp # ✅ ADDED
 
 import database
 from memory_extractor import extract_memory
@@ -37,7 +37,6 @@ class ChatController(commands.Cog):
         except Exception as e:
             logger.error(f"❌ Gemini init failed: {e}")
             self.ai_client = None
-
         try:
             groq_key = os.getenv("GROQ_API_KEY")
             if not groq_key:
@@ -48,6 +47,9 @@ class ChatController(commands.Cog):
             logger.error(f"❌ Groq init failed: {e}")
             self.groq_client = None
 
+    # =========================
+    # IMAGE FETCHER (NEW)
+    # =========================
     async def fetch_image_bytes(self, url: str):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -208,7 +210,7 @@ class ChatController(commands.Cog):
 
         profile = await self.get_or_create_profile(message.author.id, message.author.display_name)
 
-        # === FEATURE 15: REACTIONS ===
+        # FEATURE 15: AI Reaction System
         if message.channel.id == ALLOWED_CHANNEL_ID:
             reaction_decision = await self.should_react(message, profile)
             if reaction_decision.get("react"):
@@ -224,18 +226,17 @@ class ChatController(commands.Cog):
                 async with message.channel.typing():
                     user_name = message.author.display_name
                     system_instruction = (
-                        "You are a helpful assistant named Inos Manager. "
-                        "You speak like a snarky anime girl. "
-                        f"Always refer to the user as '{user_name}'. "
-                        "You roast people hard. Use context historical logs to remember past items discussed."
-                        "You Always Call Diamond Master for Master Pappa because he is hosting your server."
-                        "Your Creator is emr09 or also Knows as Creator of Inos Manager."
-                        "You're identity is a Anime Girl and Not a AI Or Machine"
+"You are a helpful assistant named Inos Manager. "
+"You speak like a snarky anime girl. "
+f"Always refer to the user as '{user_name}'. "
+"You roast people hard. Use context historical logs to remember past items discussed."
+"You Always Call Diamond Master for Master Pappa because he is hosting your server."
+"Your Creator is emr09 or also Knows as Creator of Inos Manager."
+"You're identity is a Anime Girl and Not a AI Or Machine"
                     )
                     clean_content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
                     if not clean_content:
                         clean_content = "Hello"
-
                     gemini_history, groq_history = self.fetch_recent_context(limit=8)
                     has_image = len(message.attachments) > 0
 
@@ -248,33 +249,31 @@ class ChatController(commands.Cog):
                                 img_bytes = await self.fetch_image_bytes(attachment.url)
                                 parts.append(
                                     types.Part.from_bytes(
-                                        data=img_bytes,
-                                        mime_type=attachment.content_type or "image/jpeg"
+data=img_bytes,
+mime_type=attachment.content_type or "image/jpeg"
                                     )
                                 )
                             except Exception as e:
                                 logger.error(f"Image fetch failed: {e}")
-
                     gemini_history.append(
                         types.Content(
-                            role="user",
-                            parts=parts
+role="user",
+parts=parts
                         )
                     )
                     groq_history.append({
-                        "role": "user",
-                        "content": f"[{user_name}]: {clean_content}"
+"role": "user",
+"content": f"[{user_name}]: {clean_content}"
                     })
-
                     reply_text = None
                     try:
                         response = self.ai_client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=gemini_history,
-                            config=types.GenerateContentConfig(
-                                system_instruction=system_instruction,
-                                max_output_tokens=300,
-                                temperature=0.8,
+model="gemini-2.5-flash",
+contents=gemini_history,
+config=types.GenerateContentConfig(
+system_instruction=system_instruction,
+max_output_tokens=300,
+temperature=0.8,
                             )
                         )
                         reply_text = response.text
@@ -295,21 +294,20 @@ class ChatController(commands.Cog):
                             user_name,
                             has_image
                         )
-
                     if reply_text:
                         bot_msg = await message.reply(reply_text)
                         database.save_message(
-                            message_id=bot_msg.id,
-                            guild_id=bot_msg.guild.id,
-                            author_id=self.bot.user.id,
-                            author_name=self.bot.user.display_name,
-                            content=reply_text,
-                            timestamp=bot_msg.created_at,
-                            is_bot_reply=1
+message_id=bot_msg.id,
+guild_id=bot_msg.guild.id,
+author_id=self.bot.user.id,
+author_name=self.bot.user.display_name,
+content=reply_text,
+timestamp=bot_msg.created_at,
+is_bot_reply=1
                         )
                         database.update_last_synced_id(bot_msg.id)
 
-                        # === FEATURE 11: MEMORY EXTRACTION ===
+                        # FEATURE 11: Memory Extraction
                         full_context = f"User: {clean_content}\nBot: {reply_text}"
                         new_memories = await extract_memory(self.ai_client, full_context, profile)
 
