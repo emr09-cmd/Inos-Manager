@@ -148,24 +148,25 @@ def update_user_profile(user_id: int, data: dict):
     try:
         conn = get_connection()
         cursor = conn.cursor()
+
         update_data = {k: v for k, v in data.items() if k != "user_id"}
         if not update_data:
             return
-        set_parts = []
-        values = []
-        for key, value in update_data.items():
-            if key in ['personality', 'favorites', 'memory_history', 'temp_memories', 'stats']:
-                value = json.dumps(value)
-            set_parts.append(f"{key} = %s")
-            values.append(value)
-        values.append(user_id)
+
+        # Build safe query
+        columns = ['user_id'] + list(update_data.keys())
+        placeholders = ['%s'] * len(columns)
+        set_clause = ', '.join([f"{k} = %s" for k in update_data.keys()])
+
         query = f"""
-            INSERT INTO user_profiles (user_id, {', '.join(update_data.keys())})
-            VALUES (%s, {', '.join(['%s'] * len(update_data))})
+            INSERT INTO user_profiles ({', '.join(columns)})
+            VALUES ({', '.join(placeholders)})
             ON CONFLICT (user_id) DO UPDATE SET
-            {', '.join(set_parts)}
+            {set_clause}
         """
-        cursor.execute(query, [user_id] + values)
+
+        values = [user_id] + list(update_data.values())
+        cursor.execute(query, values)
         conn.commit()
         cursor.close()
         conn.close()

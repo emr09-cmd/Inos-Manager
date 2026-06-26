@@ -161,36 +161,32 @@ class ChatController(commands.Cog):
             database.update_user_profile(user_id, profile)
         return profile
 
-    # NEW: AI Decides Reaction
     async def ai_decide_reaction(self, message: discord.Message, profile: dict) -> dict:
         if not self.ai_client:
             return {"react": False}
-
         try:
             prompt = f"""
 Message: {message.content}
 User: {message.author.display_name}
 Personality: {json.dumps(profile.get('personality', {}))}
-Relationship Score: {profile.get('relationship_score', 50)}
+Relationship: {profile.get('relationship_score', 50)}
 
-Should I react? Return JSON only:
+Decide if I should react. Return only JSON:
 {{"react": true, "emoji": ["😂", "❤️"]}} or {{"react": false}}
-Choose 1-3 emojis max. Be natural.
 """
             response = self.ai_client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
                 config=types.GenerateContentConfig(
-                    system_instruction="You are a reaction expert. Be selective and human-like.",
+                    system_instruction="You are a natural Discord user. React only when appropriate.",
                     temperature=0.7,
-                    max_output_tokens=150
+                    max_output_tokens=120
                 )
             )
             text = response.text.strip()
             if "```json" in text:
                 text = text.split("```json")[1].split("```")[0]
-            decision = json.loads(text)
-            return decision
+            return json.loads(text)
         except:
             return {"react": False}
 
@@ -218,7 +214,7 @@ Choose 1-3 emojis max. Be natural.
 
         profile = await self.get_or_create_profile(message.author.id, message.author.display_name)
 
-        # FEATURE 15: AI Reaction System
+        # AI Reaction System
         if message.channel.id == ALLOWED_CHANNEL_ID:
             reaction_decision = await self.ai_decide_reaction(message, profile)
             if reaction_decision.get("react"):
@@ -295,7 +291,7 @@ f"Always refer to the user as '{user_name}'. "
                         )
                         database.update_last_synced_id(bot_msg.id)
 
-                        # FEATURE 11: Memory + Personality Extraction
+                        # Memory + Personality
                         full_context = f"User: {clean_content}\nBot: {reply_text}"
                         new_memories = await extract_memory(self.ai_client, full_context, profile)
 
@@ -309,7 +305,7 @@ f"Always refer to the user as '{user_name}'. "
                                 if k in ["favorites", "personality"]:
                                     current = profile.get(k, {})
                                     update_data[k] = {**current, **v}
-                                else:
+                                elif k in ["nickname", "birthday", "timezone", "dislikes", "projects", "running_topics", "known_friends"]:
                                     update_data[k] = v
                             database.update_user_profile(message.author.id, update_data)
                             logger.info(f"💾 Updated memory & personality for {user_name}")

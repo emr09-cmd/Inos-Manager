@@ -12,8 +12,8 @@ def json_serializer(obj):
 
 async def extract_memory(client, conversation_text: str, existing_profile: dict = None) -> dict:
     system_prompt = """
-You are an expert memory extractor.
-Extract clear facts + personality traits.
+You are an expert memory extractor. 
+Only return keys that match: nickname, personality, favorites, dislikes, projects, running_topics, known_friends, birthday, timezone.
 Return valid JSON only.
 """
 
@@ -28,7 +28,7 @@ Conversation:
 Existing profile:
 {json.dumps(safe_profile, indent=2, default=json_serializer) if safe_profile else "None"}
 
-Extract/update:
+Extract important long-term information:
 """
 
     try:
