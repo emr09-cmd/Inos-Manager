@@ -12,7 +12,7 @@ from config import Config
 from google import genai
 from google.genai import types
 from groq import Groq
-import aiohttp # ✅ ADDED
+import aiohttp
 
 import database
 from memory_extractor import extract_memory
@@ -47,9 +47,6 @@ class ChatController(commands.Cog):
             logger.error(f"❌ Groq init failed: {e}")
             self.groq_client = None
 
-    # =========================
-    # IMAGE FETCHER (NEW)
-    # =========================
     async def fetch_image_bytes(self, url: str):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -101,10 +98,7 @@ class ChatController(commands.Cog):
             role = "model" if is_bot_reply else "user"
             groq_role = "assistant" if is_bot_reply else "user"
             gemini_contents.append(
-                types.Content(
-                    role=role,
-                    parts=[types.Part.from_text(text=text_line)]
-                )
+                types.Content(role=role, parts=[types.Part.from_text(text=text_line)])
             )
             groq_contents.append({"role": groq_role, "content": text_line})
         return gemini_contents, groq_contents
@@ -161,30 +155,44 @@ class ChatController(commands.Cog):
                 "username": username,
                 "relationship_score": 50,
                 "conversation_count": 0,
-                "last_seen": datetime.utcnow()
+                "last_seen": datetime.utcnow(),
+                "personality": {}
             }
             database.update_user_profile(user_id, profile)
         return profile
 
-    async def should_react(self, message: discord.Message, profile: dict) -> dict:
-        content_lower = message.content.lower()
-        score = profile.get("relationship_score", 50)
+    # NEW: AI Decides Reaction
+    async def ai_decide_reaction(self, message: discord.Message, profile: dict) -> dict:
+        if not self.ai_client:
+            return {"react": False}
 
-        if any(word in content_lower for word in ["lol", "haha", "😂", "🤣"]):
-            return {"react": True, "emoji": ["😂", "💀"]}
-        if any(word in content_lower for word in ["gg", "victory", "won", "win"]):
-            return {"react": True, "emoji": ["🎉", "🔥", "🏆"]}
-        if "good night" in content_lower or "gn" in content_lower:
-            return {"react": True, "emoji": ["🌙", "💤"]}
-        if "good morning" in content_lower or "gm" in content_lower:
-            return {"react": True, "emoji": ["☀️", "😊"]}
-        if len(message.attachments) > 0:
-            return {"react": True, "emoji": ["❤️", "✨"]}
+        try:
+            prompt = f"""
+Message: {message.content}
+User: {message.author.display_name}
+Personality: {json.dumps(profile.get('personality', {}))}
+Relationship Score: {profile.get('relationship_score', 50)}
 
-        if random.random() < (score / 300):
-            return {"react": True, "emoji": ["👍", "❤️"]}
-
-        return {"react": False}
+Should I react? Return JSON only:
+{{"react": true, "emoji": ["😂", "❤️"]}} or {{"react": false}}
+Choose 1-3 emojis max. Be natural.
+"""
+            response = self.ai_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+                config=types.GenerateContentConfig(
+                    system_instruction="You are a reaction expert. Be selective and human-like.",
+                    temperature=0.7,
+                    max_output_tokens=150
+                )
+            )
+            text = response.text.strip()
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0]
+            decision = json.loads(text)
+            return decision
+        except:
+            return {"react": False}
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -212,12 +220,15 @@ class ChatController(commands.Cog):
 
         # FEATURE 15: AI Reaction System
         if message.channel.id == ALLOWED_CHANNEL_ID:
-            reaction_decision = await self.should_react(message, profile)
+            reaction_decision = await self.ai_decide_reaction(message, profile)
             if reaction_decision.get("react"):
-                for emoji in reaction_decision.get("emoji", []):
+                emojis = reaction_decision.get("emoji", [])
+                if isinstance(emojis, str):
+                    emojis = [emojis]
+                for emoji in emojis[:3]:
                     try:
                         await message.add_reaction(emoji)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.6)
                     except:
                         pass
 
@@ -237,77 +248,54 @@ f"Always refer to the user as '{user_name}'. "
                     clean_content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
                     if not clean_content:
                         clean_content = "Hello"
+
                     gemini_history, groq_history = self.fetch_recent_context(limit=8)
                     has_image = len(message.attachments) > 0
 
-                    parts = [
-                        types.Part.from_text(text=f"[{user_name}]: {clean_content}")
-                    ]
+                    parts = [types.Part.from_text(text=f"[{user_name}]: {clean_content}")]
                     if has_image:
                         for attachment in message.attachments:
                             try:
                                 img_bytes = await self.fetch_image_bytes(attachment.url)
-                                parts.append(
-                                    types.Part.from_bytes(
-data=img_bytes,
-mime_type=attachment.content_type or "image/jpeg"
-                                    )
-                                )
+                                parts.append(types.Part.from_bytes(data=img_bytes, mime_type=attachment.content_type or "image/jpeg"))
                             except Exception as e:
                                 logger.error(f"Image fetch failed: {e}")
-                    gemini_history.append(
-                        types.Content(
-role="user",
-parts=parts
-                        )
-                    )
-                    groq_history.append({
-"role": "user",
-"content": f"[{user_name}]: {clean_content}"
-                    })
+
+                    gemini_history.append(types.Content(role="user", parts=parts))
+                    groq_history.append({"role": "user", "content": f"[{user_name}]: {clean_content}"})
+
                     reply_text = None
                     try:
                         response = self.ai_client.models.generate_content(
-model="gemini-2.5-flash",
-contents=gemini_history,
-config=types.GenerateContentConfig(
-system_instruction=system_instruction,
-max_output_tokens=300,
-temperature=0.8,
+                            model="gemini-2.5-flash",
+                            contents=gemini_history,
+                            config=types.GenerateContentConfig(
+                                system_instruction=system_instruction,
+                                max_output_tokens=300,
+                                temperature=0.8,
                             )
                         )
                         reply_text = response.text
                         if reply_text:
                             self.log_ai("Gemini", user_name, clean_content, reply_text)
-                        else:
-                            reply_text = self.fallback_llama(
-                                groq_history,
-                                system_instruction,
-                                user_name,
-                                has_image
-                            )
                     except Exception as e:
-                        logger.warning(f"Gemini error → switching to Groq fallback: {e}")
-                        reply_text = self.fallback_llama(
-                            groq_history,
-                            system_instruction,
-                            user_name,
-                            has_image
-                        )
+                        logger.warning(f"Gemini error → switching to Groq: {e}")
+                        reply_text = self.fallback_llama(groq_history, system_instruction, user_name, has_image)
+
                     if reply_text:
                         bot_msg = await message.reply(reply_text)
                         database.save_message(
-message_id=bot_msg.id,
-guild_id=bot_msg.guild.id,
-author_id=self.bot.user.id,
-author_name=self.bot.user.display_name,
-content=reply_text,
-timestamp=bot_msg.created_at,
-is_bot_reply=1
+                            message_id=bot_msg.id,
+                            guild_id=bot_msg.guild.id,
+                            author_id=self.bot.user.id,
+                            author_name=self.bot.user.display_name,
+                            content=reply_text,
+                            timestamp=bot_msg.created_at,
+                            is_bot_reply=1
                         )
                         database.update_last_synced_id(bot_msg.id)
 
-                        # FEATURE 11: Memory Extraction
+                        # FEATURE 11: Memory + Personality Extraction
                         full_context = f"User: {clean_content}\nBot: {reply_text}"
                         new_memories = await extract_memory(self.ai_client, full_context, profile)
 
@@ -324,7 +312,7 @@ is_bot_reply=1
                                 else:
                                     update_data[k] = v
                             database.update_user_profile(message.author.id, update_data)
-                            logger.info(f"💾 Updated memory for {user_name}")
+                            logger.info(f"💾 Updated memory & personality for {user_name}")
                     else:
                         await message.reply(f"<@{USER_ID}> AI is currently unavailable.")
 

@@ -12,13 +12,11 @@ def json_serializer(obj):
 
 async def extract_memory(client, conversation_text: str, existing_profile: dict = None) -> dict:
     system_prompt = """
-You are an expert memory extractor. Extract only clear, long-term facts from the conversation.
-Only extract facts that the user clearly stated.
-Ignore jokes. Ignore sarcasm. Ignore assumptions.
-Return valid JSON.
+You are an expert memory extractor.
+Extract clear facts + personality traits.
+Return valid JSON only.
 """
 
-    # Safe profile for JSON
     safe_profile = existing_profile.copy() if existing_profile else {}
     if isinstance(safe_profile.get("last_seen"), datetime):
         safe_profile["last_seen"] = safe_profile["last_seen"].isoformat()
@@ -30,7 +28,7 @@ Conversation:
 Existing profile:
 {json.dumps(safe_profile, indent=2, default=json_serializer) if safe_profile else "None"}
 
-Extract important long-term information as JSON:
+Extract/update:
 """
 
     try:
@@ -40,7 +38,7 @@ Extract important long-term information as JSON:
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0.1,
-                max_output_tokens=600
+                max_output_tokens=700
             )
         )
         text = response.text.strip()
