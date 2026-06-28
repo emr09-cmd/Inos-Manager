@@ -15,86 +15,12 @@ BASE_URL = "https://zehjbmjldfkbaumvrtrw.supabase.co/storage/v1/object/public/In
 INDEX_PATH = os.path.join(os.path.dirname(__file__), "storage_index.json")
 
 
-# ============================================================
-# VIEW: Booru browser — random order, no search
-# ============================================================
 class BooruView(discord.ui.View):
 
-    def __init__(self, invoker: discord.Member, all_files: list[str], folder: str):
-        super().__init__(timeout=300)
-        self.invoker = invoker
-        self.folder = folder
-        # Shuffle once on creation — order stays stable while browsing
-        self.files = all_files.copy()
-        random.shuffle(self.files)
-        self.page = 0
-        self._update_buttons()
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.invoker.id:
-            await interaction.response.send_message(
-                "❌ Only the person who opened this browser can use these buttons.",
-                ephemeral=True
-            )
-            return False
-        return True
-
-    # ── helpers ──
-
-    def current_file(self) -> str:
-        return self.files[self.page]
-
-    def current_url(self) -> str:
-        return BASE_URL + self.folder + "/" + quote(self.current_file())
-
-    def _update_buttons(self):
-        self.prev_btn.disabled = self.page == 0
-        self.next_btn.disabled = self.page >= len(self.files) - 1
-
-    def _build_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="📁 Inos Booru — Questionable",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text=f"📄 {self.current_file()}  •  {self.page + 1} / {len(self.files)}")
-        return embed
-
-    async def _render(self, interaction: discord.Interaction, first: bool = False):
-        self._update_buttons()
-        embed = self._build_embed()
-        content = f"||{self.current_url()}||"
-
-        if first:
-            await interaction.followup.send(
-                content=content,
-                embed=embed,
-                view=self,
-                ephemeral=True
-            )
-        else:
-            await interaction.response.edit_message(
-                content=content,
-                embed=embed,
-                view=self
-            )
-
-    # ── buttons ──
-
-    @discord.ui.button(label="⬅️ Prev", style=discord.ButtonStyle.secondary)
-    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page -= 1
-        await self._render(interaction)
-
-    @discord.ui.button(label="➡️ Next", style=discord.ButtonStyle.primary)
-    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page += 1
-        await self._render(interaction)
-
-    @discord.ui.button(label="🔀 Reshuffle", style=discord.ButtonStyle.secondary)
-    async def reshuffle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        random.shuffle(self.files)
-        self.page = 0
-        await self._render(interaction)
+    def __init__(self, filename: str, image_url: str):
+        super().__init__(timeout=None)
+        self.filename = filename
+        self.image_url = image_url
 
     @discord.ui.button(label="Debug.delete", style=discord.ButtonStyle.danger)
     async def debug_delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -103,18 +29,9 @@ class BooruView(discord.ui.View):
                 "❌ You are not authorized to use this button.",
                 ephemeral=True
             )
-        filename = self.current_file()
-        await interaction.response.send_message(
-            f"🗑️ **Debug.delete** triggered\n"
-            f"`{filename}`\n"
-            f"Page {self.page + 1} / {len(self.files)}",
-            ephemeral=True
-        )
+        await interaction.message.delete()
 
 
-# ============================================================
-# COG
-# ============================================================
 class InosBooru(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -139,35 +56,48 @@ class InosBooru(commands.Cog):
                 ephemeral=False
             )
 
-        await interaction.response.defer(ephemeral=True)
-
         # ── Load local index ──
         try:
             with open(INDEX_PATH, encoding="utf-8") as f:
                 index_data = json.load(f)
         except FileNotFoundError:
-            return await interaction.followup.send(
+            return await interaction.response.send_message(
                 "❌ `storage_index.json` not found next to the bot script.",
-                ephemeral=True
+                ephemeral=False
             )
         except Exception as e:
             logger.error(f"Booru index load failed: {e}")
-            return await interaction.followup.send(
+            return await interaction.response.send_message(
                 "❌ Could not load the image index. Try again later.",
-                ephemeral=True
+                ephemeral=False
             )
 
         folder = "Questionable"
         all_files = index_data.get("Inos-booru", {}).get(folder, [])
 
         if not all_files:
-            return await interaction.followup.send(
+            return await interaction.response.send_message(
                 f"❌ No images found in the **{folder}** folder.",
-                ephemeral=True
+                ephemeral=False
             )
 
-        view = BooruView(invoker=interaction.user, all_files=all_files, folder=folder)
-        await view._render(interaction, first=True)
+        filename = random.choice(all_files)
+        image_url = BASE_URL + folder + "/" + quote(filename)
+
+        embed = discord.Embed(
+            title="📁 Inos Booru — Questionable",
+            color=discord.Color.red()
+        )
+        embed.set_image(url=image_url)
+        embed.set_footer(text=f"📄 {filename}")
+
+        view = BooruView(filename=filename, image_url=image_url)
+
+        await interaction.response.send_message(
+            embed=embed,
+            view=view,
+            ephemeral=False
+        )
 
 
 async def setup(bot: commands.Bot):
