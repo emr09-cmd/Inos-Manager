@@ -7,3 +7,4 @@ __pycache__
 database.db
 *.sqlite
 chat_settings.json
+else
