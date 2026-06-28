@@ -31,8 +31,7 @@ def _load_blocklist(path: str) -> set[str]:
 BLOCKED_TAGS: set[str] = _load_blocklist(_BLOCKLIST_PATH)
 
 # ============================================================
-# API-SIDE EXCLUSIONS — high-signal core tags sent to the API
-# so most bad images are rejected before we even see them.
+# API-SIDE EXCLUSIONS
 # ============================================================
 API_EXCLUDE_TAGS = ",".join([
     "loli", "shota", "shotacon", "lolicon", "mesugaki",
@@ -48,10 +47,6 @@ API_EXCLUDE_TAGS = ",".join([
 
 
 def is_blacklisted(tags: list[dict]) -> tuple[bool, str]:
-    """
-    Client-side safety net for anything the API didn't catch.
-    Returns (True, reason) or (False, "").
-    """
     tag_names = {t["name"].lower() for t in tags}
 
     hit = tag_names & BLOCKED_TAGS
@@ -71,11 +66,8 @@ def is_blacklisted(tags: list[dict]) -> tuple[bool, str]:
 # VIEW: Delete button shown on the publicly posted image
 # ============================================================
 class DeleteView(discord.ui.View):
-    """Persistent delete button attached to the public post.
-    Only the original command invoker can use it."""
-
     def __init__(self, invoker_id: int):
-        super().__init__(timeout=86400)  # 24-hour window to delete
+        super().__init__(timeout=86400)
         self.invoker_id = invoker_id
 
     @discord.ui.button(label="🗑️ Delete", style=discord.ButtonStyle.danger)
@@ -85,7 +77,6 @@ class DeleteView(discord.ui.View):
                 "❌ Only the person who posted this image can delete it.",
                 ephemeral=True
             )
-        # Acknowledge first — if delete() raises, the interaction is still responded to
         await interaction.response.send_message("🗑️ Image deleted.", ephemeral=True)
         await interaction.message.delete()
 
@@ -94,15 +85,11 @@ class DeleteView(discord.ui.View):
 # VIEW: Ephemeral preview buttons — Reroll / Accept / Reject
 # ============================================================
 class PreviewView(discord.ui.View):
-    """Shown in the ephemeral preview message.
-    Reroll fetches a new image; Accept posts publicly; Reject silently dismisses."""
-
     def __init__(self, cog: "SerikaImage", rating: str, interaction: discord.Interaction):
-        super().__init__(timeout=None)  # No timeout — take as long as you need
+        super().__init__(timeout=None)
         self.cog = cog
         self.rating = rating
         self.original_interaction = interaction
-        # Current image state, set by the cog before sending
         self.result: dict = {}
         self.tags: list[dict] = []
         self.image_bytes: bytes | None = None
@@ -135,7 +122,6 @@ class PreviewView(discord.ui.View):
             )
         )
 
-        # Safe images embed the full image directly in the preview
         if not self.is_nsfw_channel:
             image_url = self.result.get("url")
             if image_url:
@@ -143,9 +129,6 @@ class PreviewView(discord.ui.View):
 
         return embed
 
-    # ----------------------------------------------------------
-    # Helper: disable all buttons and update the ephemeral message
-    # ----------------------------------------------------------
     async def _lock(self, interaction: discord.Interaction):
         for child in self.children:
             child.disabled = True
@@ -154,12 +137,8 @@ class PreviewView(discord.ui.View):
         except discord.NotFound:
             pass
 
-    # ----------------------------------------------------------
-    # REROLL
-    # ----------------------------------------------------------
     @discord.ui.button(label="🔄 Reroll", style=discord.ButtonStyle.primary)
     async def reroll_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Show loading state immediately so the user knows something is happening
         await interaction.response.edit_message(
             content="🔄 Finding a new image...",
             attachments=[],
@@ -178,9 +157,8 @@ class PreviewView(discord.ui.View):
 
         self.result = result
         self.tags = tags
-        self.image_bytes = None  # Reset cached bytes
+        self.image_bytes = None
 
-        # For NSFW channels, pre-download bytes for the spoiler preview
         if self.is_nsfw_channel:
             image_url = self.result.get("url")
             if image_url:
@@ -210,17 +188,14 @@ class PreviewView(discord.ui.View):
                 view=self
             )
 
-    # ----------------------------------------------------------
-    # ACCEPT — post publicly
-    # ----------------------------------------------------------
     @discord.ui.button(label="✅ Accept", style=discord.ButtonStyle.success)
     async def accept_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._lock(interaction)
 
         delete_view = DeleteView(invoker_id=interaction.user.id)
+        user_mention = interaction.user.mention
 
         if self.is_nsfw_channel:
-            # Re-download if bytes aren't cached (e.g. after accept without reroll)
             image_bytes = self.image_bytes
             if not image_bytes:
                 image_url = self.result.get("url")
@@ -240,7 +215,7 @@ class PreviewView(discord.ui.View):
                         spoiler=True
                     )
                     await interaction.channel.send(
-                        content="||⚠️ Questionable Image||",
+                        content=f"{user_mention} ||⚠️ Questionable Image||",
                         file=file,
                         embed=embed,
                         view=delete_view
@@ -249,7 +224,7 @@ class PreviewView(discord.ui.View):
                     if e.code == 40005:
                         image_url = self.result.get("url", "")
                         await interaction.channel.send(
-                            content=f"||⚠️ Questionable Image (too large to upload) — {image_url}||",
+                            content=f"{user_mention} ||⚠️ Questionable Image (too large to upload) — {image_url}||",
                             embed=embed,
                             view=delete_view
                         )
@@ -257,17 +232,18 @@ class PreviewView(discord.ui.View):
                         raise
             else:
                 await interaction.channel.send(
+                    content=user_mention,
                     embed=embed,
                     view=delete_view
                 )
         else:
             embed = self._build_embed()
             await interaction.channel.send(
+                content=user_mention,
                 embed=embed,
                 view=delete_view
             )
 
-        # Update the ephemeral message to confirm
         try:
             await interaction.edit_original_response(
                 content="✅ Image posted!",
@@ -278,9 +254,6 @@ class PreviewView(discord.ui.View):
         except discord.NotFound:
             pass
 
-    # ----------------------------------------------------------
-    # REJECT — dismiss silently
-    # ----------------------------------------------------------
     @discord.ui.button(label="❌ Reject", style=discord.ButtonStyle.secondary)
     async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         for child in self.children:
@@ -307,7 +280,6 @@ class SerikaImage(commands.Cog):
             logger.warning("⚠️ SERIKA_BOORU_API not found in environment variables")
 
     async def fetch_image(self, rating: str = "safe"):
-        """Fetch a single random image from the API with server-side tag exclusions."""
         url = f"{SERIKA_BASE_URL}/random"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         params = {
@@ -341,10 +313,6 @@ class SerikaImage(commands.Cog):
                 return image
 
     async def fetch_clean_image(self, rating: str):
-        """
-        Fetch an image with client-side blocklist enforcement.
-        Rerolls silently — feedback is handled by the preview view's reroll button.
-        """
         for attempt in range(1, MAX_REROLLS + 1):
             result = await self.fetch_image(rating)
 
@@ -375,11 +343,9 @@ class SerikaImage(commands.Cog):
                 ephemeral=True
             )
 
-        # === CHANNEL-BASED RATING LOGIC ===
         target_channel_id = 1516854766016397413
         is_nsfw_channel = interaction.channel_id == target_channel_id
         rating = "questionable" if is_nsfw_channel else "safe"
-        # ===================================
 
         result, tags = await self.fetch_clean_image(rating)
 
@@ -392,7 +358,6 @@ class SerikaImage(commands.Cog):
                 )
             return await interaction.followup.send(f"❌ Error: {error}", ephemeral=True)
 
-        # Build the preview view and populate it with the fetched image
         view = PreviewView(cog=self, rating=rating, interaction=interaction)
         view.result = result
         view.tags = tags
