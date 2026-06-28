@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inos-Booru</title>
+<style>
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #0f0f0f;
+        color: #eee;
+    }
+    header {
+        padding: 15px;
+        text-align: center;
+        background: #1a1a1a;
+        font-size: 22px;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
+    .menu {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        padding: 10px;
+        background: #111;
+    }
+    button {
+        padding: 10px 14px;
+        border: none;
+        border-radius: 6px;
+        background: #333;
+        color: white;
+        cursor: pointer;
+    }
+    button:disabled {
+        background: #222;
+        color: #666;
+    }
+    .controls {
+        padding: 10px;
+        text-align: center;
+        background: #1a1a1a;
+    }
+    input {
+        padding: 10px;
+        width: 320px;
+        border-radius: 6px;
+        border: none;
+        background: #222;
+        color: white;
+        font-size: 16px;
+    }
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 8px;
+        padding: 10px;
+    }
+    .grid img {
+        width: 100%;
+        aspect-ratio: 3 / 4;           /* Better consistent sizing */
+        object-fit: cover;
+        border-radius: 8px;
+        cursor: pointer;
+        background: #111;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .grid img:hover {
+        transform: scale(1.04);
+        box-shadow: 0 0 12px rgba(255,255,255,0.1);
+    }
+    .status {
+        text-align: center;
+        padding: 15px;
+        color: #aaa;
+        font-size: 15px;
+    }
+    /* Modal */
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0,0,0,0.96);
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        z-index: 1000;
+    }
+    .modal img {
+        max-width: 94%;
+        max-height: 88%;
+        border-radius: 12px;
+    }
+    .filename {
+        margin-top: 15px;
+        color: #ddd;
+        font-size: 15px;
+        word-break: break-all;
+        text-align: center;
+        padding: 0 20px;
+    }
+    .close {
+        position: absolute;
+        top: 25px;
+        right: 30px;
+        font-size: 36px;
+        cursor: pointer;
+        color: #fff;
+    }
+</style>
+</head>
+<body>
+<header>Inos-Booru</header>
+
+<div class="menu">
+    <button disabled>Safe</button>
+    <button id="questionableBtn">Questionable</button>
+    <button disabled>Exploited</button>
+</div>
+
+<div class="controls">
+    <input type="text" id="searchInput" placeholder="🔍 Search images..." autocomplete="off">
+</div>
+
+<div class="status" id="status">Click "Questionable" to load images</div>
+<div class="grid" id="grid"></div>
+
+<!-- Modal -->
+<div class="modal" id="modal">
+    <div class="close" onclick="closeModal()">✖</div>
+    <img id="modalImg">
+    <div class="filename" id="filename"></div>
+</div>
+
+<script>
+const BASE_URL = "https://zehjbmjldfkbaumvrtrw.supabase.co/storage/v1/object/public/Inos-booru/";
+let data = null;
+let currentFolder = null;
+let currentFiles = [];
+
+// Preload cache
+const imageCache = new Map();
+
+async function loadIndex() {
+    try {
+        const res = await fetch("storage_index.json", { cache: "force-cache" });
+        data = await res.json();
+    } catch (e) {
+        document.getElementById("status").innerText = "Failed to load storage_index.json";
+    }
+}
+
+function preloadImage(url) {
+    if (imageCache.has(url)) return;
+    const img = new Image();
+    img.src = url;
+    imageCache.set(url, true);
+}
+
+function loadImages(folder) {
+    currentFolder = folder;
+    currentFiles = (data?.["Inos-booru"]?.[folder] || []).sort();
+
+    const grid = document.getElementById("grid");
+    const status = document.getElementById("status");
+    grid.innerHTML = "";
+
+    if (currentFiles.length === 0) {
+        status.innerText = "No images found";
+        return;
+    }
+
+    status.innerText = `Loading ${currentFiles.length} images...`;
+
+    currentFiles.forEach(file => {
+        const img = document.createElement("img");
+        const url = BASE_URL + currentFolder + "/" + encodeURIComponent(file);
+        
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.src = url;
+        img.alt = file;
+        
+        img.onclick = () => openModal(url, file);
+        
+        grid.appendChild(img);
+
+        // Background preload next few images
+        preloadImage(url);
+    });
+
+    status.innerText = `${currentFiles.length} images loaded from "${folder}"`;
+}
+
+function openModal(src, name) {
+    document.getElementById("modal").style.display = "flex";
+    document.getElementById("modalImg").src = src;
+    document.getElementById("filename").innerText = name;
+}
+
+function closeModal() {
+    document.getElementById("modal").style.display = "none";
+}
+
+// Search
+document.getElementById("searchInput").addEventListener("input", (e) => {
+    if (!currentFolder) return;
+    const term = e.target.value.toLowerCase().trim();
+    
+    const grid = document.getElementById("grid");
+    grid.innerHTML = "";
+
+    const filtered = currentFiles.filter(f => f.toLowerCase().includes(term));
+
+    filtered.forEach(file => {
+        const img = document.createElement("img");
+        const url = BASE_URL + currentFolder + "/" + encodeURIComponent(file);
+        img.loading = "lazy";
+        img.src = url;
+        img.alt = file;
+        img.onclick = () => openModal(url, file);
+        grid.appendChild(img);
+    });
+
+    document.getElementById("status").innerText = `${filtered.length} images found`;
+});
+
+// Button
+document.getElementById("questionableBtn").addEventListener("click", () => {
+    loadImages("Questionable");
+});
+
+// Init
+loadIndex();
+</script>
+</body>
+</html>
