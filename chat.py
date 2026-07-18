@@ -114,7 +114,7 @@ class ChatController(commands.Cog):
                 model="llama-3.3-70b-versatile",
                 messages=messages,
                 temperature=0.8,
-                max_tokens=300
+                max_tokens=1800
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -267,7 +267,7 @@ f"Always refer to the user as '{user_name}'. "
                             contents=gemini_history,
                             config=types.GenerateContentConfig(
                                 system_instruction=system_instruction,
-                                max_output_tokens=300,
+                                max_output_tokens=1800,
                                 temperature=0.8,
                             )
                         )
