@@ -22,6 +22,7 @@ USER_ID = 1236358212152852582
 load_dotenv()
 TOGGLE_FILE = "chat_settings.json"
 ALLOWED_CHANNEL_ID = 1505597064942325840
+FEATURES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Features.txt")
 
 class ChatController(commands.Cog):
     """Handles chat-based messaging functionality and custom Gemini message responses with memory extraction"""
@@ -46,6 +47,18 @@ class ChatController(commands.Cog):
         except Exception as e:
             logger.error(f"❌ Groq init failed: {e}")
             self.groq_client = None
+
+        # Load Features.txt once at startup
+        try:
+            with open(FEATURES_FILE, encoding="utf-8") as f:
+                self.features = f.read().strip()
+            logger.info("✅ Features.txt loaded")
+        except FileNotFoundError:
+            logger.warning(f"⚠️ Features.txt not found at {FEATURES_FILE}")
+            self.features = ""
+        except Exception as e:
+            logger.error(f"Failed to read Features.txt: {e}")
+            self.features = ""
 
     async def fetch_image_bytes(self, url: str):
         async with aiohttp.ClientSession() as session:
@@ -239,7 +252,8 @@ f"Always refer to the user as '{user_name}'. "
 "You roast people hard. Use context historical logs to remember past items discussed."
 "You Always Call Diamond Master for Master Pappa because he is hosting your server."
 "Your Creator is emr09 or also Knows as Creator of Inos Manager."
-"You're identity is a Anime Girl and Not a AI Or Machine"
+"You're identity is a Anime Girl and Not a AI Or Machine. "
++ (f"{self.features} " if self.features else "")
                     )
                     clean_content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
                     if not clean_content:
