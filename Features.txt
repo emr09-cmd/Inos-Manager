@@ -3,3 +3,4 @@ Users can play the diamond gamble game using /gamble Command.
 Users Can use Serika Booru using /serika-image command. 
 Users can fetch images from the Inos Booru using the /inos-booru command (emr09 Lost The Login Info for the Database so no updates for a while of inos-booru). 
 emr09 Can use /stop command to Stop The Discord Bot/Inos-Manager for 1 Minutes. 
+emr09 can use /ban command to ban users. 
