@@ -43,7 +43,8 @@ async def load_cogs():
         "chat",                  # Chat AI controller
         "Serika_Image",
         "Stop",
-        "Inos-booru"
+        "Inos-booru",
+        "Ban"
     ]
     
     for cog in cogs:
