@@ -81,6 +81,11 @@ def init_bans_table():
                 confirmed  BOOLEAN DEFAULT FALSE
             )
         ''')
+        # Migrate: add confirmed column if the table already existed without it
+        cursor.execute('''
+            ALTER TABLE bans
+            ADD COLUMN IF NOT EXISTS confirmed BOOLEAN DEFAULT FALSE
+        ''')
         conn.commit()
         cursor.close()
         conn.close()
