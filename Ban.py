@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import database
 
@@ -212,7 +212,7 @@ class Ban(commands.Cog):
             # Rebuild duration arg from expire_at
             duration_arg = ""
             if expire_at:
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 if isinstance(expire_at, str):
                     expire_at = datetime.fromisoformat(expire_at)
                 remaining = expire_at - now
@@ -325,7 +325,7 @@ class Ban(commands.Cog):
         if user.id == self.bot.user.id:
             return await interaction.response.send_message("❌ You cannot ban the bot.", ephemeral=True)
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         td, display = parse_duration(expire)
         expire_at = (now + td) if td else None
         duration_arg = duration_to_block_arg(expire)
