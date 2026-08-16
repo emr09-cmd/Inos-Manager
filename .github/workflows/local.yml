@@ -1,0 +1,15 @@
+name: First Local Runner Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-self-hosted-runner:
+    runs-on: self-hosted
+
+    steps:
+      - name: Show current user
+        run: whoami
+
+      - name: Confirm runner worked
+        run: echo "First Local runner Worked Sucessfully"
